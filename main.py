@@ -63,9 +63,11 @@ def main():
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            total_loss += loss.item() * imgs.size(0)
 
-        print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss:.4f}")
+
+        print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss / len(dataset):.4f}")
+
 
     # ---------------------
     # Save model

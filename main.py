@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from torch.optim import lr_scheduler
+
 
 from mydatasets.celebA_dataset import CelebADataset, load_identity_mapping
 from models.sphereface_model import SphereFaceNet
@@ -44,6 +46,8 @@ def main():
     model = SphereFaceNet(num_classes=num_classes).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
 
     # ---------------------
     # Training Loop
@@ -61,12 +65,16 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
 
+
             total_loss += loss.item() * imgs.size(0)
+            
+        scheduler.step()
 
+        print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss:.4f} - LR: {scheduler.get_last_lr()[0]:.6f}")
 
-        print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss / len(dataset):.4f}")
 
 
     # ---------------------

@@ -47,12 +47,15 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-
+    best_loss = float('inf')
+    
+    save_path = 'saved_models/sphereface_model_final.pth'
+    os.makedirs('saved_models', exist_ok=True)
 
     # ---------------------
     # Training Loop
     # ---------------------
-    EPOCHS = 1  # Use 1 epoch for testing
+    EPOCHS = 1000
     for epoch in range(EPOCHS):
         model.train()
         total_loss = 0.0
@@ -67,21 +70,22 @@ def main():
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
-
-
             total_loss += loss.item() * imgs.size(0)
             
         scheduler.step()
 
         print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss:.4f} - LR: {scheduler.get_last_lr()[0]:.6f}")
+        if total_loss < best_loss:
+            best_loss = total_loss
+            torch.save(model.state_dict(), save_path)
+            print(f"Model improved, saved to: {save_path}")
 
 
 
     # ---------------------
     # Save model
     # ---------------------
-    save_path = 'saved_models/sphereface_model.pth'
-    os.makedirs('saved_models', exist_ok=True)
+    
     torch.save(model.state_dict(), save_path)
     print(f"Model saved to: {save_path}")
 

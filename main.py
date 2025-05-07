@@ -33,7 +33,7 @@ def main():
 
     # Dataset and DataLoader
     dataset = CelebADataset(img_dir, remapped_identity_dict)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, pin_memory=True, num_workers=os.cpu_count())
 
     # ---------------------
     # Model, Loss, Optimizer

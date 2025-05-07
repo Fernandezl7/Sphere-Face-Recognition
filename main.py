@@ -4,12 +4,25 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
-
+from tqdm import tqdm
 
 from mydatasets.celebA_dataset import CelebADataset, load_identity_mapping
 from models.sphereface_model import SphereFaceNet
 
+# ---------------------
+# Weight Initialization
+# ---------------------
+def initialize_weights(model):
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
 
+# ---------------------
+# Main Training Function
+# ---------------------
 def main():
     # ---------------------
     # Paths
@@ -25,17 +38,17 @@ def main():
     # ---------------------
     identity_dict = load_identity_mapping(identity_txt_path)
 
-    # Limit to first 500 images
+    # Limit to first 500 images for quick training
     limited_keys = list(identity_dict.keys())[:500]
 
-    # Extract original IDs and remap to 0-based
-    original_labels = sorted(set(identity_dict[k] for k in limited_keys))
-    label_map = {orig_id: new_id for new_id, orig_id in enumerate(original_labels)}
+    # Remap labels to 0-based index
+    all_labels = sorted(set(identity_dict.values()))
+    label_map = {orig_id: new_id for new_id, orig_id in enumerate(all_labels)}
     remapped_identity_dict = {k: label_map[identity_dict[k]] for k in limited_keys}
 
     # Dataset and DataLoader
     dataset = CelebADataset(img_dir, remapped_identity_dict)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, pin_memory=True, num_workers=os.cpu_count())
+    dataloader = DataLoader(dataset, batch_size=64, shuffle=True, pin_memory=True, num_workers=0)
 
     # ---------------------
     # Model, Loss, Optimizer
@@ -44,11 +57,13 @@ def main():
     num_classes = len(label_map)
 
     model = SphereFaceNet(num_classes=num_classes).to(device)
+    initialize_weights(model)
+
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
+
     best_loss = float('inf')
-    
     save_path = 'saved_models/sphereface_model_final.pth'
     os.makedirs('saved_models', exist_ok=True)
 
@@ -60,35 +75,55 @@ def main():
         model.train()
         total_loss = 0.0
 
-        for imgs, labels in dataloader:
+        progress_bar = tqdm(dataloader, desc=f"Epoch [{epoch+1}/{EPOCHS}]")
+        for imgs, labels in progress_bar:
             imgs, labels = imgs.to(device), labels.to(device)
 
-            logits, labels = model(imgs, labels)
+            # Model prediction
+            logits = model(imgs)
+            
+            # Ensure logits is a tensor, not a tuple
+            if isinstance(logits, tuple):
+                logits = logits[0]
+
             loss = criterion(logits, labels)
 
+            # Backpropagation
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
-            total_loss += loss.item() * imgs.size(0)
-            
-        scheduler.step()
 
-        print(f"Epoch [{epoch+1}/{EPOCHS}] Loss: {total_loss:.4f} - LR: {scheduler.get_last_lr()[0]:.6f}")
-        if total_loss < best_loss:
-            best_loss = total_loss
+            # Accumulate loss
+            total_loss += loss.item() * imgs.size(0)
+            progress_bar.set_postfix(loss=loss.item())
+
+            # Debug: Check predictions occasionally
+            if epoch % 10 == 0:
+                with torch.no_grad():
+                    pred = torch.argmax(logits, dim=1)
+                    print(f"Predictions: {pred[:5].cpu().numpy()}, Actual: {labels[:5].cpu().numpy()}")
+
+        # Scheduler step at the end of the epoch
+        scheduler.step(total_loss / len(dataset))
+
+        # Print epoch summary
+        avg_loss = total_loss / len(dataset)
+        print(f"Epoch [{epoch+1}/{EPOCHS}] Average Loss: {avg_loss:.4f}")
+        for param_group in optimizer.param_groups:
+            print(f"Learning Rate: {param_group['lr']}")
+
+        # Save the best model
+        if avg_loss < best_loss:
+            best_loss = avg_loss
             torch.save(model.state_dict(), save_path)
             print(f"Model improved, saved to: {save_path}")
 
-
-
     # ---------------------
-    # Save model
+    # Save Final Model
     # ---------------------
-    
     torch.save(model.state_dict(), save_path)
-    print(f"Model saved to: {save_path}")
-
+    print(f"Final model saved to: {save_path}")
 
 if __name__ == '__main__':
     main()

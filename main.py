@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from mydatasets.celebA_dataset import CelebADataset, load_identity_mapping
 from models.sphereface_model import SphereFaceNet
+from losses.sphereface_loss import SphereFaceLoss
 
 # ---------------------
 # Weight Initialization
@@ -39,7 +40,9 @@ def main():
     identity_dict = load_identity_mapping(identity_txt_path)
 
     # Limit to first 500 images for quick training
-    limited_keys = list(identity_dict.keys())[:500]
+    #limited_keys = list(identity_dict.keys())[:500]
+    limited_keys = list(identity_dict.keys())  # Use all available images
+
 
     # Remap labels to 0-based index
     all_labels = sorted(set(identity_dict.values()))
@@ -48,7 +51,7 @@ def main():
 
     # Dataset and DataLoader
     dataset = CelebADataset(img_dir, remapped_identity_dict)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True, pin_memory=True, num_workers=0)
+    dataloader = DataLoader(dataset, batch_size=64, shuffle=True, pin_memory=True, num_workers=2)
 
     # ---------------------
     # Model, Loss, Optimizer
@@ -59,12 +62,12 @@ def main():
     model = SphereFaceNet(num_classes=num_classes).to(device)
     initialize_weights(model)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = criterion = SphereFaceLoss(m=4, s=30.0)
     optimizer = optim.SGD(model.parameters(), lr=0.5, momentum=0.9, weight_decay=5e-4)
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=5, verbose=True)
 
     best_loss = float('inf')
-    save_path = 'saved_models/sphereface_model_final.pth'
+    save_path = 'saved_models/sphereface_model_sphereface_loss.pth'
     os.makedirs('saved_models', exist_ok=True)
 
     # ---------------------

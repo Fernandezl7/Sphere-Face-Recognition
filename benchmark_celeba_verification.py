@@ -14,7 +14,7 @@ import numpy as np
 DATA_DIR = "data"
 IMG_DIR = "data/img_align_celeba"
 ID_FILE = "data/identity_CelebA.txt"
-MODEL_PATH = "saved_models/sphereface_model_final.pth"
+MODEL_PATH = 'saved_models/sphereface_model_sphereface_loss.pth'
 
 # Hyperparameters
 NUM_PAIRS = 500

@@ -2,11 +2,13 @@ import os
 import random
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 from tqdm import tqdm
 from torchvision import transforms
 from PIL import Image
 from sklearn.metrics import roc_auc_score, accuracy_score, roc_curve
-from inference import load_model, get_embedding, cosine_similarity
+from inference import load_model, get_embedding, cosine_similarity, extract_features
 import cv2
 import numpy as np
 
@@ -14,7 +16,7 @@ import numpy as np
 DATA_DIR = "data"
 IMG_DIR = "data/img_align_celeba"
 ID_FILE = "data/identity_CelebA.txt"
-MODEL_PATH = 'saved_models/sphereface_model_sphereface_loss.pth'
+MODEL_PATH = 'saved_models/sphereface_ce_1000ids.pth'
 
 # Hyperparameters
 NUM_PAIRS = 500
@@ -23,6 +25,21 @@ IMAGE_SIZE = 112
 # Set random seed for reproducibility
 random.seed(42)
 torch.manual_seed(42)
+
+def plot_embeddings_tsne(embeddings, labels, title="t-SNE of Face Embeddings"):
+    tsne = TSNE(n_components=2, init='random', random_state=42, perplexity=30)
+    reduced = tsne.fit_transform(np.array(embeddings))
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(reduced[:, 0], reduced[:, 1], c=labels, cmap='tab10', alpha=0.7)
+    plt.colorbar(scatter)
+    plt.title(title)
+    plt.xlabel('t-SNE Dim 1')
+    plt.ylabel('t-SNE Dim 2')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("tsne_embeddings.png")
+    plt.show()
 
 def load_landmarks(landmark_path):
     landmarks = {}
@@ -104,6 +121,8 @@ def preprocess_image(image_path, landmarks_dict=None):
 def evaluate_model(model, same_pairs, diff_pairs, landmarks_dict):
     y_true = []
     y_score = []
+    embeddings = []
+    embed_labels = []
 
     all_pairs = [(a, b, 1) for a, b in same_pairs] + [(a, b, 0) for a, b in diff_pairs]
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -116,18 +135,32 @@ def evaluate_model(model, same_pairs, diff_pairs, landmarks_dict):
         img2 = preprocess_image(path2, landmarks_dict).to(device)
 
         with torch.no_grad():
-            emb1 = get_embedding(model, img1, device)
-            emb2 = get_embedding(model, img2, device)
+            emb1 = extract_features(model, img1, device)
+            emb2 = extract_features(model, img2, device)
 
         sim = cosine_similarity(emb1, emb2)
         y_true.append(label)
         y_score.append(sim)
 
-    # Compute metrics
-    threshold = 0.5
+        # Average embeddings for visualization
+        avg_embedding = ((emb1 + emb2) / 2).cpu().numpy()
+        embeddings.append(avg_embedding)
+        embed_labels.append(label)
+
+    # Automatically find best threshold
+    fpr, tpr, thresholds = roc_curve(y_true, y_score)
+    optimal_idx = (tpr - fpr).argmax()
+    threshold = thresholds[optimal_idx]
+    print(f"Optimal threshold: {threshold:.4f}")
+
     y_pred = [1 if s >= threshold else 0 for s in y_score]
     acc = accuracy_score(y_true, y_pred)
     auc = roc_auc_score(y_true, y_score)
+
+    # Plot t-SNE
+    print("Plotting t-SNE visualization...")
+    plot_embeddings_tsne(embeddings, embed_labels)
+
     return acc, auc
 
 def main():
@@ -149,6 +182,7 @@ def main():
     acc, auc = evaluate_model(model, same_pairs, diff_pairs, landmarks_dict)
     print(f"Verification Accuracy: {acc * 100:.2f}%")
     print(f"ROC AUC Score: {auc:.4f}")
+
 
 if __name__ == '__main__':
     main()

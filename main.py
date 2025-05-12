@@ -41,8 +41,25 @@ def main():
 
     # Limit to first 500 images for quick training
     #limited_keys = list(identity_dict.keys())[:500]
-    limited_keys = list(identity_dict.keys())  # Use all available images
 
+    #limited_keys = list(identity_dict.keys())  # Use all available images
+
+    # Limit training to 1000 identities, up to 20 images each
+    MAX_IDENTITIES = 1000
+    MAX_IMAGES_PER_ID = 20
+
+    limited_keys = []
+    identity_counts = {}
+
+    for img_name, identity in identity_dict.items():
+        if identity not in identity_counts:
+            if len(identity_counts) >= MAX_IDENTITIES:
+                continue
+            identity_counts[identity] = 0
+
+        if identity_counts[identity] < MAX_IMAGES_PER_ID:
+            limited_keys.append(img_name)
+            identity_counts[identity] += 1
 
     # Remap labels to 0-based index
     all_labels = sorted(set(identity_dict.values()))
@@ -62,18 +79,20 @@ def main():
     model = SphereFaceNet(num_classes=num_classes).to(device)
     initialize_weights(model)
 
-    criterion = criterion = SphereFaceLoss(m=4, s=30.0)
+    #criterion = SphereFaceLoss(m=4, s=30.0)
+    criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.5, momentum=0.9, weight_decay=5e-4)
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.9, patience=5, verbose=True)
 
     best_loss = float('inf')
-    save_path = 'saved_models/sphereface_model_sphereface_loss.pth'
+    #save_path = 'saved_models/sphereface_model_sphereface_loss.pth'
+    save_path = 'saved_models/sphereface_ce_1000ids.pth'
     os.makedirs('saved_models', exist_ok=True)
 
     # ---------------------
     # Training Loop
     # ---------------------
-    EPOCHS = 1000
+    EPOCHS = 50
     for epoch in range(EPOCHS):
         model.train()
         total_loss = 0.0
@@ -83,11 +102,13 @@ def main():
             imgs, labels = imgs.to(device), labels.to(device)
 
             # Model prediction
-            logits = model(imgs)
+            output = model(imgs)
             
             # Ensure logits is a tensor, not a tuple
-            if isinstance(logits, tuple):
-                logits = logits[0]
+            if isinstance(output, tuple):
+                logits, _ = output
+            else:
+                logits = output
 
             loss = criterion(logits, labels)
 
@@ -115,6 +136,10 @@ def main():
         print(f"Epoch [{epoch+1}/{EPOCHS}] Average Loss: {avg_loss:.4f}")
         for param_group in optimizer.param_groups:
             print(f"Learning Rate: {param_group['lr']}")
+
+        if epoch == 0 or epoch % 5 == 0:
+            print(f"Batch loss: {loss.item():.4f}")
+
 
         # Save the best model
         if avg_loss < best_loss:

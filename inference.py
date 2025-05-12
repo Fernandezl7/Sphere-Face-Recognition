@@ -48,6 +48,17 @@ def get_embedding(model, image_tensor, device):
         embedding = model(image_tensor)  # returns 512-D normalized vector
     return embedding.squeeze(0)
 
+def extract_features(model, image_tensor, device):
+    model.eval()
+    with torch.no_grad():
+        image_tensor = image_tensor.to(device)
+        # Manually run feature extractor and fc
+        x = model.features(image_tensor)
+        x = x.view(x.size(0), -1)
+        embedding = model.fc(x)
+        return F.normalize(embedding, p=2, dim=1).squeeze(0)
+
+
 
 # -------------------------------
 # Cosine similarity
